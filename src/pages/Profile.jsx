@@ -1,14 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  Settings,
-  Grid,
-  Bookmark,
-  MoreHorizontal,
-  LogOut,
-  Video,
-  Users
-} from 'lucide-react';
+import { Settings, Grid, Bookmark, UserCheck, MoreHorizontal, LogOut, Video, Users } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { useAuth } from '../components/AuthGuard';
@@ -20,7 +12,6 @@ const Profile = () => {
   const { username } = useParams();
   const navigate = useNavigate();
   const { user, logout, refreshUser } = useAuth();
-
   const [activeTab, setActiveTab] = useState('posts');
   const [userPosts, setUserPosts] = useState([]);
   const [profileUser, setProfileUser] = useState(null);
@@ -29,23 +20,22 @@ const Profile = () => {
   const [isFollowLoading, setIsFollowLoading] = useState(false);
   const [showFollowersModal, setShowFollowersModal] = useState(false);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
-  const [mutualFollowers, setMutualFollowers] = useState([]);
-  const [suggestedUsers, setSuggestedUsers] = useState([]);
-
+  const [mutualFollowers, setMutualFollowers] = useState([]); // ✅ new
+  const [suggestedUsers, setSuggestedUsers] = useState([]);   // ✅ new
   const isOwnProfile = username === user?.username;
 
+  // Filter posts by type
+  const photoPosts = userPosts.filter(post => {
+    const postType = post.postType || (post.video ? 'reel' : 'photo');
+    return postType === 'photo';
+  });
+
+  const reelPosts = userPosts.filter(post => {
+    const postType = post.postType || (post.video ? 'reel' : 'photo');
+    return postType === 'reel';
+  });
+
   const displayUser = profileUser || (isOwnProfile ? user : null);
-
-  const safeArray = (arr) => (Array.isArray(arr) ? arr : []);
-
-  // Filter posts
-  const photoPosts = safeArray(userPosts).filter(
-    (post) => (post.postType || (post.video ? 'reel' : 'photo')) === 'photo'
-  );
-
-  const reelPosts = safeArray(userPosts).filter(
-    (post) => (post.postType || (post.video ? 'reel' : 'photo')) === 'reel'
-  );
 
   // Fetch profile user info
   useEffect(() => {
@@ -54,10 +44,11 @@ const Profile = () => {
         const idOrUsername = isOwnProfile ? user?.username : username;
         if (idOrUsername) {
           const res = await axios.get(`/api/users/${idOrUsername}`);
-          setProfileUser(res.data || null);
+          setProfileUser(res.data);
         }
       } catch {
-        setProfileUser(isOwnProfile && user ? user : null);
+        if (isOwnProfile && user) setProfileUser(user);
+        else setProfileUser(null);
       }
     };
     fetchUser();
@@ -66,9 +57,8 @@ const Profile = () => {
   // Fetch posts
   useEffect(() => {
     if (displayUser?._id) {
-      axios
-        .get(`/api/posts/user/${displayUser._id}`)
-        .then((res) => setUserPosts(res.data || []))
+      axios.get(`/api/posts/user/${displayUser._id}`)
+        .then(res => setUserPosts(res.data))
         .catch(() => setUserPosts([]));
     }
   }, [displayUser]);
@@ -76,60 +66,49 @@ const Profile = () => {
   // Check follow status
   useEffect(() => {
     if (displayUser && user && !isOwnProfile) {
-      const following = safeArray(user.following);
-      setIsFollowing(
-        following.some(
-          (f) => f._id?.toString() === displayUser._id || f.toString() === displayUser._id
-        )
-      );
+      const following = user.following || [];
+      setIsFollowing(following.some(f => f._id?.toString() === displayUser._id || f.toString() === displayUser._id));
     }
   }, [displayUser, user, isOwnProfile]);
 
-  // Fetch mutual followers
+  // ✅ Fetch mutual followers
   useEffect(() => {
     const fetchMutual = async () => {
       if (!user || !displayUser || isOwnProfile) return;
       try {
-        const res = await axios.get(
-          `/api/users/${displayUser._id}/mutual/${user._id}`
-        );
-        setMutualFollowers(safeArray(res.data));
+        const res = await axios.get(`/api/users/${displayUser._id}/mutual/${user._id}`);
+        setMutualFollowers(res.data || []);
       } catch {
         setMutualFollowers([]);
       }
     };
     fetchMutual();
-  }, [displayUser, user, isOwnProfile]);
+  }, [displayUser, user]);
 
-  // Fetch suggested users
+  // ✅ Fetch suggested users to follow
   useEffect(() => {
     if (isOwnProfile && user?._id) {
-      axios
-        .get(`/api/users/suggested/${user._id}`)
-        .then((res) => setSuggestedUsers(safeArray(res.data)))
+      axios.get(`/api/users/suggested/${user._id}`)
+        .then(res => setSuggestedUsers(res.data))
         .catch(() => setSuggestedUsers([]));
     }
   }, [isOwnProfile, user]);
 
-  // Follow/unfollow handler
+  // Follow / Unfollow
   const handleFollow = async () => {
     if (!user || !displayUser || isFollowLoading) return;
     setIsFollowLoading(true);
     try {
       if (isFollowing) {
-        await axios.post(`/api/users/${displayUser._id}/unfollow`, {
-          followerId: user._id,
-        });
+        await axios.post(`/api/users/${displayUser._id}/unfollow`, { followerId: user._id });
         setIsFollowing(false);
       } else {
-        await axios.post(`/api/users/${displayUser._id}/follow`, {
-          followerId: user._id,
-        });
+        await axios.post(`/api/users/${displayUser._id}/follow`, { followerId: user._id });
         setIsFollowing(true);
       }
       await refreshUser();
       const res = await axios.get(`/api/users/${displayUser.username}`);
-      setProfileUser(res.data || displayUser);
+      setProfileUser(res.data);
       window.dispatchEvent(new CustomEvent('refreshNotifications'));
     } catch (err) {
       console.error('Error following/unfollowing user:', err);
@@ -141,27 +120,20 @@ const Profile = () => {
   // Fetch saved posts
   useEffect(() => {
     if (isOwnProfile && user?._id) {
-      axios
-        .get(`/api/posts/saved/${user._id}`)
-        .then((res) => setSavedPosts(safeArray(res.data)))
+      axios.get(`/api/posts/saved/${user._id}`)
+        .then(res => setSavedPosts(res.data))
         .catch(() => setSavedPosts([]));
     }
   }, [isOwnProfile, user?._id]);
 
-  // Like/unlike handler
   const handleLike = async (postId, isLiking) => {
     try {
       if (!user?._id) return alert('Please log in again.');
-      if (isLiking)
-        await axios.post(`/api/posts/${postId}/like`, { userId: user._id });
-      else
-        await axios.delete(`/api/posts/${postId}/like`, {
-          data: { userId: user._id },
-        });
-
+      if (isLiking) await axios.post(`/api/posts/${postId}/like`, { userId: user._id });
+      else await axios.delete(`/api/posts/${postId}/like`, { data: { userId: user._id } });
       if (displayUser?._id) {
         const res = await axios.get(`/api/posts/user/${displayUser._id}`);
-        setUserPosts(safeArray(res.data));
+        setUserPosts(res.data);
       }
     } catch (err) {
       console.error('Error toggling like:', err);
@@ -182,7 +154,7 @@ const Profile = () => {
                     ? `http://localhost:5001/${displayUser.avatar}`
                     : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&crop=face'
                 }
-                alt={displayUser?.username || 'user'}
+                alt={displayUser?.username}
                 className="w-full h-full object-cover"
               />
             </div>
@@ -190,16 +162,11 @@ const Profile = () => {
             <div className="flex-1 min-w-0">
               <div className="flex items-center space-x-4 mb-4">
                 <h1 className="text-xl lg:text-2xl font-light dark:text-white">
-                  {displayUser?.username || 'Unknown'}
+                  {displayUser?.username}
                 </h1>
-
                 {isOwnProfile ? (
                   <div className="flex space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => navigate('/profile/edit')}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => navigate('/profile/edit')}>
                       Edit profile
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => navigate('/settings')}>
@@ -230,7 +197,7 @@ const Profile = () => {
                         ? '...'
                         : isFollowing
                         ? 'Following'
-                        : safeArray(mutualFollowers).length > 0
+                        : mutualFollowers.length > 0
                         ? 'Follow back'
                         : 'Follow'}
                     </Button>
@@ -247,7 +214,7 @@ const Profile = () => {
               {/* Stats */}
               <div className="flex space-x-8 mb-4">
                 <div className="flex flex-col items-center lg:items-start">
-                  <span className="font-semibold dark:text-white">{safeArray(userPosts).length}</span>
+                  <span className="font-semibold dark:text-white">{userPosts.length}</span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">posts</span>
                 </div>
                 <div
@@ -255,7 +222,7 @@ const Profile = () => {
                   onClick={() => setShowFollowersModal(true)}
                 >
                   <span className="font-semibold dark:text-white">
-                    {safeArray(displayUser?.followers).length || 0}
+                    {displayUser?.followers?.length || 0}
                   </span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">followers</span>
                 </div>
@@ -264,31 +231,23 @@ const Profile = () => {
                   onClick={() => setShowFollowingModal(true)}
                 >
                   <span className="font-semibold dark:text-white">
-                    {safeArray(displayUser?.following).length || 0}
+                    {displayUser?.following?.length || 0}
                   </span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">following</span>
                 </div>
               </div>
 
-              {/* Mutual followers info */}
-              {!isOwnProfile && safeArray(mutualFollowers).length > 0 && (
+              {/* ✅ Mutual followers info */}
+              {!isOwnProfile && mutualFollowers.length > 0 && (
                 <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-                  Followed by{' '}
-                  {safeArray(mutualFollowers)
-                    .slice(0, 2)
-                    .map((m) => m.username)
-                    .join(', ')}
+                  Followed by {mutualFollowers.slice(0, 2).map(m => m.username).join(', ')}
                   {mutualFollowers.length > 2 && ` and ${mutualFollowers.length - 2} others`}
                 </p>
               )}
 
               {/* Bio */}
-              <h2 className="font-semibold mb-1 dark:text-white">
-                {displayUser?.displayName || ''}
-              </h2>
-              <p className="text-sm whitespace-pre-line dark:text-gray-300">
-                {displayUser?.bio || ''}
-              </p>
+              <h2 className="font-semibold mb-1 dark:text-white">{displayUser?.displayName}</h2>
+              <p className="text-sm whitespace-pre-line dark:text-gray-300">{displayUser?.bio}</p>
               {displayUser?.website && (
                 <a
                   href={displayUser.website}
@@ -304,55 +263,49 @@ const Profile = () => {
         </div>
       </div>
 
-      {/* Suggested users */}
-      {isOwnProfile && safeArray(suggestedUsers).length > 0 && (
+      {/* ✅ Suggested users section (for your own profile) */}
+      {isOwnProfile && suggestedUsers.length > 0 && (
         <div className="bg-white dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700 p-4">
           <h3 className="flex items-center space-x-2 text-lg font-semibold mb-3 dark:text-white">
             <Users className="h-5 w-5" />
             <span>Suggested for you</span>
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {safeArray(suggestedUsers)
-              .slice(0, 6)
-              .map((s) => (
-                <div
-                  key={s._id}
-                  className="flex items-center justify-between bg-gray-50 dark:bg-gray-700 rounded-xl p-2"
-                >
-                  <div className="flex items-center space-x-2">
-                    <img
-                      src={
-                        s.avatar
-                          ? `http://localhost:5001/${s.avatar}`
-                          : 'https://via.placeholder.com/40'
-                      }
-                      alt={s.username}
-                      className="w-8 h-8 rounded-full object-cover"
-                    />
-                    <div>
-                      <p className="text-sm font-semibold dark:text-white">@{s.username}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {s.displayName}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="text-xs bg-blue-500 hover:bg-blue-600 text-white"
-                    onClick={() =>
-                      axios.post(`/api/users/${s._id}/follow`, { followerId: user._id })
+            {suggestedUsers.slice(0, 6).map((s) => (
+              <div
+                key={s._id}
+                className="flex items-center justify-between bg-gray-50 dark:bg-gray-700 rounded-xl p-2"
+              >
+                <div className="flex items-center space-x-2">
+                  <img
+                    src={
+                      s.avatar
+                        ? `http://localhost:5001/${s.avatar}`
+                        : 'https://via.placeholder.com/40'
                     }
-                  >
-                    Follow
-                  </Button>
+                    alt={s.username}
+                    className="w-8 h-8 rounded-full object-cover"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold dark:text-white">@{s.username}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{s.displayName}</p>
+                  </div>
                 </div>
-              ))}
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="text-xs bg-blue-500 hover:bg-blue-600 text-white"
+                  onClick={() => axios.post(`/api/users/${s._id}/follow`, { followerId: user._id })}
+                >
+                  Follow
+                </Button>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tabs for posts */}
       <Tabs defaultValue="posts" className="w-full">
         <TabsList className="w-full bg-white dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700 rounded-none h-auto p-0">
           <TabsTrigger value="posts" className="flex-1 flex items-center justify-center py-3">
@@ -371,10 +324,15 @@ const Profile = () => {
           )}
         </TabsList>
 
+        {/* Posts content */}
         <TabsContent value="posts" className="mt-0">
-          {safeArray(userPosts).length > 0 ? (
-            safeArray(userPosts).map((post) => (
-              <PostCard key={post._id} post={post} onLike={handleLike} />
+          {userPosts.length > 0 ? (
+            userPosts.map((post) => (
+              <PostCard
+                key={post._id}
+                post={post}
+                onLike={handleLike}
+              />
             ))
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
@@ -385,13 +343,15 @@ const Profile = () => {
         </TabsContent>
       </Tabs>
 
-      {/* Modals */}
+      {/* Followers Modal */}
       <FollowersModal
         isOpen={showFollowersModal}
         onClose={() => setShowFollowersModal(false)}
         userId={displayUser?._id}
         type="followers"
       />
+
+      {/* Following Modal */}
       <FollowersModal
         isOpen={showFollowingModal}
         onClose={() => setShowFollowingModal(false)}
